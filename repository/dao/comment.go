@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"time"
 )
 
@@ -48,25 +49,42 @@ func (dao *GORMCommentDAO) FindByBiz(ctx context.Context, biz int32, bizId int64
 }
 
 func (dao *GORMCommentDAO) Delete(ctx context.Context, commentId int64, uid int64) error {
-	res := dao.db.WithContext(ctx).
-		Where("id = ? and uid = ?", commentId, uid).
-		Delete(&Comment{})
-	if res.Error != nil {
-		return res.Error
-	}
-	if res.RowsAffected == 0 {
-		return errors.New("删除失败")
-	}
-	return nil
+	return dao.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 删除评论
+		res := tx.Where("id = ? and uid = ?", commentId, uid).
+			Delete(&Comment{})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return errors.New("删除失败")
+		}
+		// 减少计数,这里只有评论id，要想减少<biz,bizId>的计数，要把评论查出来
+		var c Comment
+		err := dao.db.WithContext(ctx).
+			Where("id = ?", commentId).
+			First(&c).Error
+		if err != nil {
+			return err
+		}
+		return tx.Model(&BizCommentCount{}).
+			Where("biz = ? and biz_id = ?", c.Biz, c.BizId).
+			Updates(map[string]any{
+				"utime": time.Now().UnixMilli(),
+				"count": gorm.Expr("`count` - 1"),
+			}).Error
+	})
 }
 
 func (dao *GORMCommentDAO) GetCountByBiz(ctx context.Context, biz int32, bizId int64) (int64, error) {
-	var count int64
+	var bc BizCommentCount
 	err := dao.db.WithContext(ctx).
-		Model(&Comment{}).
 		Where("biz = ? and biz_id = ?", biz, bizId).
-		Count(&count).Error
-	return count, err
+		First(&bc).Error
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return 0, err
+	}
+	return bc.Count, nil
 }
 
 // FindRepliesByRid 先旧后新
@@ -93,9 +111,26 @@ func (dao *GORMCommentDAO) Insert(ctx context.Context, c Comment) error {
 	now := time.Now().UnixMilli()
 	c.Utime = now
 	c.Ctime = now
-	return dao.db.
-		WithContext(ctx).
-		Create(&c).Error
+	return dao.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 插入评论
+		err := tx.Create(&c).Error
+		if err != nil {
+			return err
+		}
+		// 增加评论计数
+		return tx.Clauses(
+			clause.OnConflict{
+				DoUpdates: clause.Assignments(map[string]any{
+					"utime": now,
+					"count": gorm.Expr("`count` + 1"),
+				})}).Create(&BizCommentCount{
+			Biz:   c.Biz,
+			BizID: c.BizId,
+			Count: 1,
+			Ctime: now,
+			Utime: now,
+		}).Error
+	})
 }
 
 type Comment struct {
@@ -105,7 +140,7 @@ type Comment struct {
 	// 发表评论的业务类型
 	Biz int32 `gorm:"column:biz;index:biz_type_id" json:"biz"`
 	// 对应的业务ID
-	BizID int64 `gorm:"column:biz_id;index:biz_type_id" json:"bizID"`
+	BizId int64 `gorm:"column:biz_id;index:biz_type_id" json:"bizID"`
 	// 根评论为0表示一级评论
 	RootID sql.NullInt64 `gorm:"column:root_id;index" json:"rootID"`
 	// 父级评论
@@ -119,4 +154,14 @@ type Comment struct {
 	Ctime int64 `gorm:"column:ctime;" json:"ctime"`
 	// 更新时间
 	Utime int64 `gorm:"column:utime;" json:"utime"`
+}
+
+// BizCommentCount 做一个comment数量的维护，因为这个东西频率比较高
+type BizCommentCount struct {
+	ID    int64 `gorm:"primaryKey"`
+	Biz   int32 `gorm:"index"` // 业务类型
+	BizID int64 `gorm:"index"` // 业务ID
+	Count int64 // 评论数量
+	Ctime int64
+	Utime int64
 }
