@@ -1,6 +1,9 @@
 mysql:
   dsn: "root:root@tcp(localhost:3306)/kstack"
 
+redis:
+  addr: "localhost:6379"
+
 etcd:
   endpoints:
     - "localhost:12379"

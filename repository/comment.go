@@ -3,13 +3,17 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	commentv1 "github.com/MuxiKeStack/be-api/gen/proto/comment/v1"
 	"github.com/MuxiKeStack/be-comment/domain"
 	"github.com/MuxiKeStack/be-comment/pkg/logger"
+	"github.com/MuxiKeStack/be-comment/repository/cache"
 	"github.com/MuxiKeStack/be-comment/repository/dao"
 	"golang.org/x/sync/errgroup"
 	"time"
 )
+
+var ErrPermissionDenied = errors.New("没有该资源访问权限")
 
 type CommentRepository interface {
 	FindByBiz(ctx context.Context, biz commentv1.Biz, bizId int64, curCommentId int64, limit int64) ([]domain.Comment, error)
@@ -21,8 +25,9 @@ type CommentRepository interface {
 }
 
 type CachedCommentRepo struct {
-	dao dao.CommentDAO
-	l   logger.Logger
+	dao   dao.CommentDAO
+	cache cache.CommentCache
+	l     logger.Logger
 }
 
 func (repo *CachedCommentRepo) FindById(ctx context.Context, commentId int64) (domain.Comment, error) {
@@ -30,8 +35,12 @@ func (repo *CachedCommentRepo) FindById(ctx context.Context, commentId int64) (d
 	return repo.toDomain(comment), err
 }
 
-func NewCachedCommentRepo(dao dao.CommentDAO, l logger.Logger) CommentRepository {
-	return &CachedCommentRepo{dao: dao, l: l}
+func NewCachedCommentRepo(dao dao.CommentDAO, cache cache.CommentCache, l logger.Logger) CommentRepository {
+	return &CachedCommentRepo{
+		dao:   dao,
+		cache: cache,
+		l:     l,
+	}
 }
 
 func (repo *CachedCommentRepo) FindByBiz(ctx context.Context, biz commentv1.Biz, bizId int64, curCommentId int64, limit int64) ([]domain.Comment, error) {
@@ -67,12 +76,60 @@ func (repo *CachedCommentRepo) FindByBiz(ctx context.Context, biz commentv1.Biz,
 	return res, eg.Wait()
 }
 
+func (repo *CachedCommentRepo) CreateComment(ctx context.Context, comment domain.Comment) error {
+	err := repo.dao.Insert(ctx, repo.toEntity(comment))
+	if err != nil {
+		return err
+	}
+	return repo.cache.IncrBizCommentCountIfPresent(ctx, int32(comment.Biz), comment.BizId)
+}
+
 func (repo *CachedCommentRepo) DeleteComment(ctx context.Context, commentId int64, uid int64) error {
-	return repo.dao.Delete(ctx, commentId, uid)
+	comment, err := repo.dao.FindById(ctx, commentId)
+	if comment.Uid != uid {
+		return ErrPermissionDenied
+	}
+	// 要传入<biz,bizId>，因为delete也包括减少数目delete 'count'
+	err = repo.dao.Delete(ctx, commentId, comment.Biz, comment.BizId)
+	if err != nil {
+		return err
+	}
+	return repo.cache.DecrBizCommentCountIfPresent(ctx, comment.Biz, comment.BizId)
 }
 
 func (repo *CachedCommentRepo) GetCountByBiz(ctx context.Context, biz commentv1.Biz, bizId int64) (int64, error) {
-	return repo.dao.GetCountByBiz(ctx, int32(biz), bizId)
+	count, err := repo.cache.GetBizCommentCount(ctx, int32(biz), bizId)
+	if err == nil {
+		return count, nil
+	}
+	if err != nil && err != cache.ErrKeyNotExists {
+		repo.l.Error("获取评论数信息失败",
+			logger.Error(err),
+			logger.String("biz", biz.String()),
+			logger.Int64("bizId", bizId),
+		)
+		// 降级，保护住数据库
+		return 0, err
+	}
+	count, err = repo.dao.GetCountByBiz(ctx, int32(biz), bizId)
+	if err != nil {
+		return 0, err
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		er := repo.cache.SetBizCommentCount(ctx, int32(biz), bizId, count)
+		if er != nil {
+			if er != nil {
+				repo.l.Error("回写评论数信息失败",
+					logger.Error(err),
+					logger.Any("biz", biz.String()),
+					logger.Int64("bizId", bizId),
+				)
+			}
+		}
+	}()
+	return count, nil
 }
 
 func (repo *CachedCommentRepo) GetMoreReplies(ctx context.Context, rid int64, curCommentId int64, limit int64) ([]domain.Comment, error) {
@@ -87,10 +144,6 @@ func (repo *CachedCommentRepo) GetMoreReplies(ctx context.Context, rid int64, cu
 	return res, nil
 }
 
-func (repo *CachedCommentRepo) CreateComment(ctx context.Context, comment domain.Comment) error {
-	return repo.dao.Insert(ctx, repo.toEntity(comment))
-}
-
 func (repo *CachedCommentRepo) toDomain(daoComment dao.Comment) domain.Comment {
 	val := domain.Comment{
 		Id: daoComment.Id,
@@ -98,7 +151,7 @@ func (repo *CachedCommentRepo) toDomain(daoComment dao.Comment) domain.Comment {
 			ID: daoComment.Uid,
 		},
 		Biz:        commentv1.Biz(daoComment.Biz),
-		BizID:      daoComment.BizId,
+		BizId:      daoComment.BizId,
 		Content:    daoComment.Content,
 		ReplyToUid: daoComment.ReplyToUid,
 		CTime:      time.UnixMilli(daoComment.Ctime),
@@ -122,7 +175,7 @@ func (repo *CachedCommentRepo) toEntity(domainComment domain.Comment) dao.Commen
 		Id:            domainComment.Id,
 		Uid:           domainComment.Commentator.ID,
 		Biz:           int32(domainComment.Biz),
-		BizId:         domainComment.BizID,
+		BizId:         domainComment.BizId,
 		ReplyToUid:    domainComment.ReplyToUid,
 		ParentComment: nil,
 		Content:       domainComment.Content,

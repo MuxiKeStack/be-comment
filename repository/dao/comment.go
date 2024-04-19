@@ -12,7 +12,7 @@ import (
 type CommentDAO interface {
 	FindByBiz(ctx context.Context, biz int32, bizId int64, curCommentId int64, limit int64) ([]Comment, error)
 	FindRepliesByPid(ctx context.Context, pid int64, offset int, limit int) ([]Comment, error)
-	Delete(ctx context.Context, commentId int64, uid int64) error
+	Delete(ctx context.Context, commentId int64, biz int32, bizId int64) error
 	GetCountByBiz(ctx context.Context, biz int32, bizId int64) (int64, error)
 	FindRepliesByRid(ctx context.Context, rid int64, curCommentId int64, limit int64) ([]Comment, error)
 	Insert(ctx context.Context, comment Comment) error
@@ -48,10 +48,10 @@ func (dao *GORMCommentDAO) FindByBiz(ctx context.Context, biz int32, bizId int64
 	return res, err
 }
 
-func (dao *GORMCommentDAO) Delete(ctx context.Context, commentId int64, uid int64) error {
+func (dao *GORMCommentDAO) Delete(ctx context.Context, commentId int64, biz int32, bizId int64) error {
 	return dao.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 删除评论
-		res := tx.Where("id = ? and uid = ?", commentId, uid).
+		res := tx.Where("id = ?", commentId).
 			Delete(&Comment{})
 		if res.Error != nil {
 			return res.Error
@@ -59,16 +59,8 @@ func (dao *GORMCommentDAO) Delete(ctx context.Context, commentId int64, uid int6
 		if res.RowsAffected == 0 {
 			return errors.New("删除失败")
 		}
-		// 减少计数,这里只有评论id，要想减少<biz,bizId>的计数，要把评论查出来
-		var c Comment
-		err := dao.db.WithContext(ctx).
-			Where("id = ?", commentId).
-			First(&c).Error
-		if err != nil {
-			return err
-		}
 		return tx.Model(&BizCommentCount{}).
-			Where("biz = ? and biz_id = ?", c.Biz, c.BizId).
+			Where("biz = ? and biz_id = ?", biz, bizId).
 			Updates(map[string]any{
 				"utime": time.Now().UnixMilli(),
 				"count": gorm.Expr("`count` - 1"),

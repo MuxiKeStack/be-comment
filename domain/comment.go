@@ -12,7 +12,7 @@ type Comment struct {
 	// 评论对象
 	// 数据里面
 	Biz   commentv1.Biz `json:"biz"`
-	BizID int64         `json:"bizid"`
+	BizId int64         `json:"bizid"`
 	// 评论对象
 	Content string `json:"content"`
 	// 根评论

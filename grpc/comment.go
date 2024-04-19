@@ -77,7 +77,7 @@ func convertToDomain(comment *commentv1.Comment) domain.Comment {
 			ID: comment.GetCommentatorId(),
 		},
 		Biz:        comment.GetBiz(),
-		BizID:      comment.GetBizId(),
+		BizId:      comment.GetBizId(),
 		Content:    comment.Content,
 		ReplyToUid: comment.GetReplyToUid(),
 	}
@@ -101,7 +101,7 @@ func (s *CommentServiceServer) toDTO(domainComments []domain.Comment) []*comment
 			Id:            domainComment.Id,
 			CommentatorId: domainComment.Commentator.ID,
 			Biz:           domainComment.Biz,
-			BizId:         domainComment.BizID,
+			BizId:         domainComment.BizId,
 			Content:       domainComment.Content,
 			ReplyToUid:    domainComment.ReplyToUid,
 			Ctime:         domainComment.CTime.UnixMilli(),

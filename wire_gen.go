@@ -11,6 +11,7 @@ import (
 	"github.com/MuxiKeStack/be-comment/ioc"
 	"github.com/MuxiKeStack/be-comment/pkg/grpcx"
 	"github.com/MuxiKeStack/be-comment/repository"
+	"github.com/MuxiKeStack/be-comment/repository/cache"
 	"github.com/MuxiKeStack/be-comment/repository/dao"
 	"github.com/MuxiKeStack/be-comment/service"
 )
@@ -21,7 +22,9 @@ func InitGRPCServer() grpcx.Server {
 	logger := ioc.InitLogger()
 	db := ioc.InitDB(logger)
 	commentDAO := dao.NewCommentDAO(db)
-	commentRepository := repository.NewCachedCommentRepo(commentDAO, logger)
+	cmdable := ioc.InitRedis()
+	commentCache := cache.NewRedisCommentCache(cmdable)
+	commentRepository := repository.NewCachedCommentRepo(commentDAO, commentCache, logger)
 	commentService := service.NewCommentService(commentRepository)
 	commentServiceServer := grpc.NewCommentServiceServer(commentService)
 	client := ioc.InitEtcdClient()
