@@ -151,8 +151,8 @@ type Comment struct {
 // BizCommentCount 做一个comment数量的维护，因为这个东西频率比较高
 type BizCommentCount struct {
 	ID    int64 `gorm:"primaryKey"`
-	Biz   int32 `gorm:"index"` // 业务类型
-	BizID int64 `gorm:"index"` // 业务ID
+	Biz   int32 `gorm:"uniqueIndex:biz_bizId"` // 业务类型
+	BizID int64 `gorm:"uniqueIndex:biz_bizId"` // 业务ID
 	Count int64 // 评论数量
 	Ctime int64
 	Utime int64
