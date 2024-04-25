@@ -9,7 +9,7 @@ import (
 	"github.com/MuxiKeStack/be-comment/pkg/logger"
 	"github.com/MuxiKeStack/be-comment/repository/cache"
 	"github.com/MuxiKeStack/be-comment/repository/dao"
-	"golang.org/x/sync/errgroup"
+	"github.com/ecodeclub/ekit/slice"
 	"time"
 )
 
@@ -45,35 +45,9 @@ func NewCachedCommentRepo(dao dao.CommentDAO, cache cache.CommentCache, l logger
 
 func (repo *CachedCommentRepo) FindByBiz(ctx context.Context, biz commentv1.Biz, bizId int64, curCommentId int64, limit int64) ([]domain.Comment, error) {
 	daoComments, err := repo.dao.FindByBiz(ctx, int32(biz), bizId, curCommentId, limit)
-	if err != nil {
-		return nil, err
-	}
-	res := make([]domain.Comment, 0, len(daoComments))
-	// 只找三条
-	var eg errgroup.Group
-	downgraded := ctx.Value("downgraded") == "true"
-	for _, d := range daoComments {
-		cm := repo.toDomain(d) // todo
-		res = append(res, cm)
-		if downgraded {
-			continue
-		}
-		eg.Go(func() error {
-			// 只展示三条
-			cm.Children = make([]domain.Comment, 0, 3)
-			rs, err := repo.dao.FindRepliesByPid(ctx, d.Id, 0, 3)
-			if err != nil {
-				// 我们认为这是一个可以容忍的错误
-				repo.l.Error("查询子评论失败", logger.Error(err))
-				return nil
-			}
-			for _, r := range rs {
-				cm.Children = append(cm.Children, repo.toDomain(r))
-			}
-			return nil
-		})
-	}
-	return res, eg.Wait()
+	return slice.Map(daoComments, func(idx int, src dao.Comment) domain.Comment {
+		return repo.toDomain(src)
+	}), err
 }
 
 func (repo *CachedCommentRepo) CreateComment(ctx context.Context, comment domain.Comment) error {
