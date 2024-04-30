@@ -2,12 +2,16 @@ package cache
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"github.com/redis/go-redis/v9"
 	"time"
 )
 
 var ErrKeyNotExists = redis.Nil
+
+//go:embed lua/comment_cnt_incr.lua
+var commentCntIncrLuaScript string
 
 type CommentCache interface {
 	GetBizCommentCount(ctx context.Context, biz int32, bizId int64) (int64, error)
@@ -36,12 +40,12 @@ func (cache *RedisCommentCache) SetBizCommentCount(ctx context.Context, biz int3
 
 func (cache *RedisCommentCache) IncrBizCommentCountIfPresent(ctx context.Context, biz int32, bizId int64) error {
 	key := cache.bizCommentCountKey(biz, bizId)
-	return cache.cmd.Incr(ctx, key).Err()
+	return cache.cmd.Eval(ctx, commentCntIncrLuaScript, []string{key}, 1).Err()
 }
 
 func (cache *RedisCommentCache) DecrBizCommentCountIfPresent(ctx context.Context, biz int32, bizId int64) error {
 	key := cache.bizCommentCountKey(biz, bizId)
-	return cache.cmd.Decr(ctx, key).Err()
+	return cache.cmd.Eval(ctx, commentCntIncrLuaScript, []string{key}, -1).Err()
 }
 
 func (cache *RedisCommentCache) bizCommentCountKey(biz int32, bizId int64) string {
