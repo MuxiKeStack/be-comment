@@ -25,9 +25,13 @@ func InitGRPCServer() grpcx.Server {
 	cmdable := ioc.InitRedis()
 	commentCache := cache.NewRedisCommentCache(cmdable)
 	commentRepository := repository.NewCachedCommentRepo(commentDAO, commentCache, logger)
-	commentService := service.NewCommentService(commentRepository)
+	client := ioc.InitKafka()
+	producer := ioc.InitProducer(client)
+	clientv3Client := ioc.InitEtcdClient()
+	evaluationServiceClient := ioc.InitEvaluationClient(clientv3Client)
+	answerServiceClient := ioc.InitAnswerClient(clientv3Client)
+	commentService := service.NewCommentService(commentRepository, producer, evaluationServiceClient, answerServiceClient, logger)
 	commentServiceServer := grpc.NewCommentServiceServer(commentService)
-	client := ioc.InitEtcdClient()
-	server := ioc.InitGRPCxKratosServer(commentServiceServer, client, logger)
+	server := ioc.InitGRPCxKratosServer(commentServiceServer, clientv3Client, logger)
 	return server
 }

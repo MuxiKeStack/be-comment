@@ -8,7 +8,7 @@ import (
 type Comment struct {
 	Id int64 `json:"id"`
 	// 评论者
-	Commentator User `json:"user"`
+	Commentator User `json:"commentator"`
 	// 评论对象
 	// 数据里面
 	Biz   commentv1.Biz `json:"biz"`

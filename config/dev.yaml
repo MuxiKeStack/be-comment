@@ -14,3 +14,12 @@ grpc:
     weight: 100
     addr: ":8097"
     etcdTTL: 60
+  client:
+    answer:
+      endpoint: "discovery:///answer"
+    evaluation:
+      endpoint: "discovery:///evaluation"
+
+kafka:
+  addrs:
+    - "localhost:9094"
