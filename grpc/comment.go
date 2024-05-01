@@ -70,6 +70,36 @@ func (s *CommentServiceServer) CountComment(ctx context.Context, request *commen
 	}, err
 }
 
+func (s *CommentServiceServer) GetComment(ctx context.Context, request *commentv1.GetCommentRequest) (*commentv1.GetCommentResponse, error) {
+	comment, err := s.svc.GetComment(ctx, request.GetCommentId())
+	if err == service.ErrCommentNotFound {
+		return &commentv1.GetCommentResponse{}, commentv1.ErrorCommentNotFound("评论不存在: %d", request.GetCommentId())
+	}
+	return &commentv1.GetCommentResponse{
+		Comment: convertToV(comment),
+	}, err
+}
+
+func convertToV(comment domain.Comment) *commentv1.Comment {
+	commentVo := &commentv1.Comment{
+		Id:            comment.Id,
+		CommentatorId: comment.Commentator.ID,
+		Biz:           comment.Biz,
+		BizId:         comment.BizId,
+		Content:       comment.Content,
+		ReplyToUid:    comment.ReplyToUid,
+		Ctime:         comment.CTime.UnixMilli(),
+		Utime:         comment.UTime.UnixMilli(),
+	}
+	if comment.RootComment != nil {
+		commentVo.RootComment = &commentv1.Comment{Id: comment.RootComment.Id}
+	}
+	if comment.ParentComment != nil {
+		commentVo.ParentComment = &commentv1.Comment{Id: comment.ParentComment.Id}
+	}
+	return commentVo
+}
+
 func convertToDomain(comment *commentv1.Comment) domain.Comment {
 	domainComment := domain.Comment{
 		Id: comment.GetId(),

@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+var ErrRecordNotFound = gorm.ErrRecordNotFound
+
 type CommentDAO interface {
 	FindByBiz(ctx context.Context, biz int32, bizId int64, curCommentId int64, limit int64) ([]Comment, error)
 	FindRepliesByPid(ctx context.Context, pid int64, offset int, limit int) ([]Comment, error)

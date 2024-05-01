@@ -7,12 +7,15 @@ import (
 	"github.com/MuxiKeStack/be-comment/repository"
 )
 
+var ErrCommentNotFound = repository.ErrCommentNotFound
+
 type CommentService interface {
 	CreateComment(ctx context.Context, comment domain.Comment) error
 	GetCommentList(ctx context.Context, biz commentv1.Biz, bizId int64, curCommentId int64, limit int64) ([]domain.Comment, error)
 	DeleteComment(ctx context.Context, commentId int64, uid int64) error
 	GetMoreReplies(ctx context.Context, rid int64, curCommentId int64, limit int64) ([]domain.Comment, error)
 	Count(ctx context.Context, biz commentv1.Biz, bizId int64) (int64, error)
+	GetComment(ctx context.Context, commentId int64) (domain.Comment, error)
 }
 
 type commentService struct {
@@ -39,21 +42,25 @@ func (s *commentService) Count(ctx context.Context, biz commentv1.Biz, bizId int
 	return s.repo.GetCountByBiz(ctx, biz, bizId)
 }
 
-func (c *commentService) GetMoreReplies(ctx context.Context, rid int64, curCommentId int64, limit int64) ([]domain.Comment, error) {
-	return c.repo.GetMoreReplies(ctx, rid, curCommentId, limit)
+func (s *commentService) GetMoreReplies(ctx context.Context, rid int64, curCommentId int64, limit int64) ([]domain.Comment, error) {
+	return s.repo.GetMoreReplies(ctx, rid, curCommentId, limit)
 }
 
-func (c *commentService) CreateComment(ctx context.Context, comment domain.Comment) error {
+func (s *commentService) CreateComment(ctx context.Context, comment domain.Comment) error {
 	// 要去聚合一下 replyToUid
 	if comment.ParentComment.Id != 0 {
 		// 有父评论，找到父评论的发布者
-		pc, err := c.repo.FindById(ctx, comment.ParentComment.Id)
+		pc, err := s.repo.FindById(ctx, comment.ParentComment.Id)
 		if err != nil {
 			return err
 		}
 		comment.ReplyToUid = pc.Commentator.ID
 	}
-	return c.repo.CreateComment(ctx, comment)
+	return s.repo.CreateComment(ctx, comment)
+}
+
+func (s *commentService) GetComment(ctx context.Context, commentId int64) (domain.Comment, error) {
+	return s.repo.FindById(ctx, commentId)
 }
 
 func NewCommentSvc(repo repository.CommentRepository) CommentService {

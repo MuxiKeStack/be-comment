@@ -13,7 +13,10 @@ import (
 	"time"
 )
 
-var ErrPermissionDenied = errors.New("没有该资源访问权限")
+var (
+	ErrPermissionDenied = errors.New("没有该资源访问权限")
+	ErrCommentNotFound  = dao.ErrRecordNotFound
+)
 
 type CommentRepository interface {
 	FindByBiz(ctx context.Context, biz commentv1.Biz, bizId int64, curCommentId int64, limit int64) ([]domain.Comment, error)
