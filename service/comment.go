@@ -12,6 +12,7 @@ import (
 	"github.com/MuxiKeStack/be-comment/pkg/logger"
 	"github.com/MuxiKeStack/be-comment/repository"
 	"strconv"
+	"time"
 )
 
 var (
@@ -94,30 +95,34 @@ func (s *commentService) CreateComment(ctx context.Context, comment domain.Comme
 		return err
 	}
 
-	err = s.producer.ProduceFeedEvent(ctx, events.FeedEvent{
-		Type: feedv1.EventType_Comment,
-		Metadata: map[string]string{
-			// 评论者
-			"commentator": strconv.FormatInt(comment.Commentator.ID, 10),
-			// 被评论者
-			"recipient": strconv.FormatInt(comment.ReplyToUid, 10),
-			// 资源发布者，可能与被评论者相同
-			"bizPublisher": strconv.FormatInt(publisherId, 10),
-			"biz":          comment.Biz.String(),
-			"bizId":        strconv.FormatInt(comment.BizId, 10),
-			"commentId":    strconv.FormatInt(comment.Id, 10),
-		},
-	})
-	if err != nil {
-		s.l.Error("发送评论事件失败",
-			logger.Error(err),
-			logger.Int64("commentator", comment.Commentator.ID),
-			logger.Int64("recipient", comment.ReplyToUid),
-			logger.Int64("bizPublisher", publisherId),
-			logger.String("biz", comment.Biz.String()),
-			logger.Int64("bizId", comment.BizId),
-			logger.Int64("commentId", comment.Id))
-	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+		defer cancel()
+		er := s.producer.ProduceFeedEvent(ctx, events.FeedEvent{
+			Type: feedv1.EventType_Comment,
+			Metadata: map[string]string{
+				// 评论者
+				"commentator": strconv.FormatInt(comment.Commentator.ID, 10),
+				// 被评论者
+				"recipient": strconv.FormatInt(comment.ReplyToUid, 10),
+				// 资源发布者，可能与被评论者相同
+				"bizPublisher": strconv.FormatInt(publisherId, 10),
+				"biz":          comment.Biz.String(),
+				"bizId":        strconv.FormatInt(comment.BizId, 10),
+				"commentId":    strconv.FormatInt(comment.Id, 10),
+			},
+		})
+		if er != nil {
+			s.l.Error("发送评论事件失败",
+				logger.Error(er),
+				logger.Int64("commentator", comment.Commentator.ID),
+				logger.Int64("recipient", comment.ReplyToUid),
+				logger.Int64("bizPublisher", publisherId),
+				logger.String("biz", comment.Biz.String()),
+				logger.Int64("bizId", comment.BizId),
+				logger.Int64("commentId", comment.Id))
+		}
+	}()
 
 	return nil
 }
