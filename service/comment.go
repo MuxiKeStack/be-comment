@@ -90,7 +90,7 @@ func (s *commentService) CreateComment(ctx context.Context, comment domain.Comme
 	} else {
 		comment.ReplyToUid = publisherId
 	}
-	err = s.repo.CreateComment(ctx, comment)
+	commentId, err := s.repo.CreateCommentSync(ctx, comment)
 	if err != nil {
 		return err
 	}
@@ -109,7 +109,7 @@ func (s *commentService) CreateComment(ctx context.Context, comment domain.Comme
 				"bizPublisher": strconv.FormatInt(publisherId, 10),
 				"biz":          comment.Biz.String(),
 				"bizId":        strconv.FormatInt(comment.BizId, 10),
-				"commentId":    strconv.FormatInt(comment.Id, 10),
+				"commentId":    strconv.FormatInt(commentId, 10),
 			},
 		})
 		if er != nil {

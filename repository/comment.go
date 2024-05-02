@@ -23,8 +23,9 @@ type CommentRepository interface {
 	DeleteComment(ctx context.Context, commentId int64, uid int64) error
 	GetCountByBiz(ctx context.Context, biz commentv1.Biz, bizId int64) (int64, error)
 	GetMoreReplies(ctx context.Context, rid int64, curCommentId int64, limit int64) ([]domain.Comment, error)
-	CreateComment(ctx context.Context, comment domain.Comment) error
+	CreateCommentAsync(ctx context.Context, comment domain.Comment) error
 	FindById(ctx context.Context, commentId int64) (domain.Comment, error)
+	CreateCommentSync(ctx context.Context, comment domain.Comment) (int64, error)
 }
 
 type CachedCommentRepo struct {
@@ -53,12 +54,29 @@ func (repo *CachedCommentRepo) FindByBiz(ctx context.Context, biz commentv1.Biz,
 	}), err
 }
 
-func (repo *CachedCommentRepo) CreateComment(ctx context.Context, comment domain.Comment) error {
-	err := repo.dao.Insert(ctx, repo.toEntity(comment))
+func (repo *CachedCommentRepo) CreateCommentAsync(ctx context.Context, comment domain.Comment) error {
+	// 这里可以做成异步
+	_, err := repo.dao.Insert(ctx, repo.toEntity(comment))
 	if err != nil {
 		return err
 	}
 	return repo.cache.IncrBizCommentCountIfPresent(ctx, int32(comment.Biz), comment.BizId)
+}
+
+func (repo *CachedCommentRepo) CreateCommentSync(ctx context.Context, comment domain.Comment) (int64, error) {
+	commentId, err := repo.dao.Insert(ctx, repo.toEntity(comment))
+	if err != nil {
+		return 0, err
+	}
+	err = repo.cache.IncrBizCommentCountIfPresent(ctx, int32(comment.Biz), comment.BizId)
+	if err != nil {
+		repo.l.Error("同步评论数缓存失败",
+			logger.Error(err),
+			logger.String("biz", comment.Biz.String()),
+			logger.Int64("bizId", comment.BizId))
+
+	}
+	return commentId, nil
 }
 
 func (repo *CachedCommentRepo) DeleteComment(ctx context.Context, commentId int64, uid int64) error {

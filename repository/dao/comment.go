@@ -17,7 +17,7 @@ type CommentDAO interface {
 	Delete(ctx context.Context, commentId int64, biz int32, bizId int64) error
 	GetCountByBiz(ctx context.Context, biz int32, bizId int64) (int64, error)
 	FindRepliesByRid(ctx context.Context, rid int64, curCommentId int64, limit int64) ([]Comment, error)
-	Insert(ctx context.Context, comment Comment) error
+	Insert(ctx context.Context, comment Comment) (int64, error)
 	FindById(ctx context.Context, commentId int64) (Comment, error)
 }
 
@@ -101,11 +101,11 @@ func (dao *GORMCommentDAO) FindRepliesByPid(ctx context.Context, pid int64, offs
 	return res, err
 }
 
-func (dao *GORMCommentDAO) Insert(ctx context.Context, c Comment) error {
+func (dao *GORMCommentDAO) Insert(ctx context.Context, c Comment) (int64, error) {
 	now := time.Now().UnixMilli()
 	c.Utime = now
 	c.Ctime = now
-	return dao.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := dao.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 插入评论
 		err := tx.Create(&c).Error
 		if err != nil {
@@ -125,6 +125,7 @@ func (dao *GORMCommentDAO) Insert(ctx context.Context, c Comment) error {
 			Utime: now,
 		}).Error
 	})
+	return c.Id, err
 }
 
 type Comment struct {
