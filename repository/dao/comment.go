@@ -18,11 +18,38 @@ type CommentDAO interface {
 	GetCountByBiz(ctx context.Context, biz int32, bizId int64) (int64, error)
 	FindRepliesByRid(ctx context.Context, rid int64, curCommentId int64, limit int64) ([]Comment, error)
 	Insert(ctx context.Context, comment Comment) (int64, error)
+	// 这个是为了迁移脚本而增加的方法,ctime,utime外界来传入
+	InsertWithTime(ctx context.Context, comment Comment) (int64, error)
 	FindById(ctx context.Context, commentId int64) (Comment, error)
 }
 
 type GORMCommentDAO struct {
 	db *gorm.DB
+}
+
+func (dao *GORMCommentDAO) InsertWithTime(ctx context.Context, c Comment) (int64, error) {
+	now := time.Now().UnixMilli()
+	err := dao.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 插入评论
+		err := tx.Create(&c).Error
+		if err != nil {
+			return err
+		}
+		// 增加评论计数
+		return tx.Clauses(
+			clause.OnConflict{
+				DoUpdates: clause.Assignments(map[string]any{
+					"utime": now,
+					"count": gorm.Expr("`count` + 1"),
+				})}).Create(&BizCommentCount{
+			Biz:   c.Biz,
+			BizID: c.BizId,
+			Count: 1,
+			Ctime: now,
+			Utime: now,
+		}).Error
+	})
+	return c.Id, err
 }
 
 func (dao *GORMCommentDAO) FindById(ctx context.Context, commentId int64) (Comment, error) {
